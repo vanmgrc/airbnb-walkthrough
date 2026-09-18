@@ -1,4 +1,4 @@
-// Sends the selected listing photos to Claude and gets back a
+// Sends the selected listing photos to Claude or ChatGPT and gets back a
 // Higgsfield-ready walkthrough video prompt.
 
 function buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText }) {
@@ -18,6 +18,102 @@ Higgsfield prompts work best as short, direct sentences rather than long descrip
 Output the final prompt as plain text formatted with those four labeled sections, ready to paste directly into Higgsfield. Do not add commentary before or after it.`;
 }
 
+// Errors carrying a status are passed through to the client as-is; anything
+// else falls back to a generic 500.
+function apiError(message, status) {
+  const err = new Error(message);
+  err.status = status;
+  return err;
+}
+
+async function generateWithClaude({ images, systemPrompt, userText }) {
+  const apiKey = process.env.ANTHROPIC_API_KEY;
+  if (!apiKey) {
+    throw apiError("Server is missing ANTHROPIC_API_KEY. Add it in Vercel's project settings.", 500);
+  }
+
+  const imageBlocks = images.map(({ contentType, data }) => ({
+    type: "image",
+    source: {
+      type: "base64",
+      media_type: contentType,
+      data,
+    },
+  }));
+
+  const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      "x-api-key": apiKey,
+      "anthropic-version": "2023-06-01",
+    },
+    body: JSON.stringify({
+      model: "claude-sonnet-5",
+      max_tokens: 1200,
+      system: systemPrompt,
+      messages: [
+        {
+          role: "user",
+          content: [...imageBlocks, { type: "text", text: userText }],
+        },
+      ],
+    }),
+  });
+
+  const data = await anthropicRes.json();
+
+  if (!anthropicRes.ok) {
+    throw apiError(data?.error?.message || "Claude API request failed.", 502);
+  }
+
+  return data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+}
+
+async function generateWithChatGPT({ images, systemPrompt, userText }) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey) {
+    throw apiError("Server is missing OPENAI_API_KEY. Add it in Vercel's project settings.", 500);
+  }
+
+  const imageBlocks = images.map(({ contentType, data }) => ({
+    type: "image_url",
+    image_url: { url: `data:${contentType};base64,${data}` },
+  }));
+
+  const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${apiKey}`,
+    },
+    body: JSON.stringify({
+      model: "gpt-4o",
+      max_tokens: 1200,
+      messages: [
+        { role: "system", content: systemPrompt },
+        {
+          role: "user",
+          content: [...imageBlocks, { type: "text", text: userText }],
+        },
+      ],
+    }),
+  });
+
+  const data = await openaiRes.json();
+
+  if (!openaiRes.ok) {
+    throw apiError(data?.error?.message || "ChatGPT API request failed.", 502);
+  }
+
+  return data.choices?.[0]?.message?.content || "";
+}
+
+const GENERATORS = {
+  claude: generateWithClaude,
+  chatgpt: generateWithChatGPT,
+};
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST" });
@@ -30,36 +126,33 @@ export default async function handler(req, res) {
     duration = 30,
     includeTitle = false,
     titleText = "",
+    provider = "claude",
   } = req.body || {};
 
   if (!Array.isArray(photos) || photos.length === 0) {
     return res.status(400).json({ error: "No photos selected." });
   }
 
-  const apiKey = process.env.ANTHROPIC_API_KEY;
-  if (!apiKey) {
-    return res.status(500).json({ error: "Server is missing ANTHROPIC_API_KEY. Add it in Vercel's project settings." });
+  const generate = GENERATORS[provider];
+  if (!generate) {
+    return res.status(400).json({ error: `Unknown provider "${provider}". Use "claude" or "chatgpt".` });
   }
 
   try {
-    // Fetch each image and convert to base64 so Claude can see them.
-    const imageBlocks = [];
+    // Fetch each image and convert to base64 so the model can see them.
+    const images = [];
     for (const photoUrl of photos) {
       const imgRes = await fetch(photoUrl);
       if (!imgRes.ok) continue;
       const buffer = Buffer.from(await imgRes.arrayBuffer());
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
-      imageBlocks.push({
-        type: "image",
-        source: {
-          type: "base64",
-          media_type: contentType,
-          data: buffer.toString("base64"),
-        },
+      images.push({
+        contentType,
+        data: buffer.toString("base64"),
       });
     }
 
-    if (imageBlocks.length === 0) {
+    if (images.length === 0) {
       return res.status(400).json({ error: "Couldn't load any of the selected photos." });
     }
 
@@ -67,36 +160,17 @@ export default async function handler(req, res) {
       ? `Here are the selected listing photos. Additional notes from the host: ${notes}`
       : "Here are the selected listing photos.";
 
-    const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "x-api-key": apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      body: JSON.stringify({
-        model: "claude-sonnet-5",
-        max_tokens: 1200,
-        system: buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText }),
-        messages: [
-          {
-            role: "user",
-            content: [...imageBlocks, { type: "text", text: userText }],
-          },
-        ],
-      }),
+    const text = await generate({
+      images,
+      systemPrompt: buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText }),
+      userText,
     });
 
-    const data = await anthropicRes.json();
-
-    if (!anthropicRes.ok) {
-      return res.status(502).json({ error: data?.error?.message || "Claude API request failed." });
-    }
-
-    const text = data.content.filter((b) => b.type === "text").map((b) => b.text).join("\n");
-
-    return res.status(200).json({ prompt: text });
+    return res.status(200).json({ prompt: text, provider });
   } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({ error: err.message });
+    }
     return res.status(500).json({ error: "Failed to generate prompt: " + err.message });
   }
 }

@@ -9,6 +9,8 @@ export default function Home() {
   const [duration, setDuration] = useState(30);
   const [includeTitle, setIncludeTitle] = useState(false);
   const [titleText, setTitleText] = useState("");
+  const [provider, setProvider] = useState("claude");
+  const [usedProvider, setUsedProvider] = useState("");
   const [prompt, setPrompt] = useState("");
   const [error, setError] = useState("");
   const [loadingPhotos, setLoadingPhotos] = useState(false);
@@ -49,6 +51,7 @@ export default function Home() {
   async function generatePrompt() {
     setError("");
     setPrompt("");
+    setUsedProvider("");
     setLoadingPrompt(true);
     try {
       const res = await fetch("/api/generate", {
@@ -61,6 +64,7 @@ export default function Home() {
           duration,
           includeTitle,
           titleText,
+          provider,
         }),
       });
       const data = await res.json();
@@ -68,6 +72,7 @@ export default function Home() {
         setError(data.error || "Something went wrong.");
       } else {
         setPrompt(data.prompt);
+        setUsedProvider(data.provider);
       }
     } catch (e) {
       setError("Failed to reach the server.");
@@ -121,6 +126,26 @@ export default function Home() {
           </section>
 
           <section className="settings">
+            <div className="setting">
+              <label>Write the prompt with</label>
+              <div className="toggle-group">
+                <button
+                  type="button"
+                  className={provider === "claude" ? "chip on" : "chip"}
+                  onClick={() => setProvider("claude")}
+                >
+                  Claude
+                </button>
+                <button
+                  type="button"
+                  className={provider === "chatgpt" ? "chip on" : "chip"}
+                  onClick={() => setProvider("chatgpt")}
+                >
+                  ChatGPT
+                </button>
+              </div>
+            </div>
+
             <div className="setting">
               <label>Aspect ratio</label>
               <div className="toggle-group">
@@ -198,7 +223,14 @@ export default function Home() {
       {prompt && (
         <section className="output">
           <div className="output-head">
-            <h2>Your Higgsfield prompt</h2>
+            <div className="output-title">
+              <h2>Your Higgsfield prompt</h2>
+              {usedProvider && (
+                <span className="provider-tag">
+                  {usedProvider === "chatgpt" ? "ChatGPT" : "Claude"}
+                </span>
+              )}
+            </div>
             <button onClick={copyPrompt}>{copied ? "Copied" : "Copy"}</button>
           </div>
           <pre>{prompt}</pre>
@@ -388,6 +420,19 @@ export default function Home() {
         .output-head h2 {
           font-size: 1rem;
           margin: 0;
+        }
+        .output-title {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+        }
+        .provider-tag {
+          padding: 0.15rem 0.5rem;
+          border-radius: 20px;
+          background: #33373f;
+          color: #cfcac0;
+          font-size: 0.7rem;
+          font-weight: 600;
         }
         pre {
           white-space: pre-wrap;
