@@ -15,6 +15,8 @@ export default function Home() {
   const [error, setError] = useState("");
   const [loadingPhotos, setLoadingPhotos] = useState(false);
   const [loadingPrompt, setLoadingPrompt] = useState(false);
+  const [zipping, setZipping] = useState(false);
+  const [zipDone, setZipDone] = useState(0);
   const [copied, setCopied] = useState(false);
 
   async function fetchPhotos() {
@@ -80,6 +82,48 @@ export default function Home() {
     setLoadingPrompt(false);
   }
 
+  // Builds the zip in the browser rather than on the server: a full 60-photo
+  // listing runs well past what a serverless response can return in one go.
+  async function downloadPhotos() {
+    setError("");
+    setZipDone(0);
+    setZipping(true);
+    try {
+      const JSZip = (await import("jszip")).default;
+      const zip = new JSZip();
+      const list = Array.from(selected);
+      let added = 0;
+
+      for (let i = 0; i < list.length; i++) {
+        const res = await fetch(`/api/photo?url=${encodeURIComponent(list[i])}`);
+        if (res.ok) {
+          const blob = await res.blob();
+          const ext = (blob.type.split("/")[1] || "jpg").replace("jpeg", "jpg");
+          zip.file(`photo-${String(i + 1).padStart(2, "0")}.${ext}`, blob);
+          added++;
+        }
+        setZipDone(i + 1);
+      }
+
+      if (added === 0) {
+        setError("Couldn't download any of the selected photos.");
+      } else {
+        const content = await zip.generateAsync({ type: "blob" });
+        const href = URL.createObjectURL(content);
+        const link = document.createElement("a");
+        link.href = href;
+        link.download = "listing-photos.zip";
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(href);
+      }
+    } catch (e) {
+      setError("Failed to build the zip file.");
+    }
+    setZipping(false);
+  }
+
   function copyPrompt() {
     navigator.clipboard.writeText(prompt);
     setCopied(true);
@@ -111,6 +155,13 @@ export default function Home() {
         <>
           <section className="grid-header">
             <p>{selected.size} of {photos.length} selected. Uncheck anything that isn't part of the unit.</p>
+            <button
+              className="download-btn"
+              onClick={downloadPhotos}
+              disabled={selected.size === 0 || zipping}
+            >
+              {zipping ? `Zipping ${zipDone}/${selected.size}…` : "Download as zip"}
+            </button>
           </section>
           <section className="grid">
             {photos.map((photo) => (
@@ -285,10 +336,28 @@ export default function Home() {
           color: #ff8a80;
           margin-top: 1rem;
         }
+        .grid-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 1rem;
+          flex-wrap: wrap;
+        }
         .grid-header p {
           color: #9a9a9a;
           font-size: 0.9rem;
           margin: 1.5rem 0 0.7rem;
+        }
+        .download-btn {
+          flex-shrink: 0;
+          padding: 0.45rem 0.85rem;
+          border-radius: 8px;
+          border: 1px solid #33373f;
+          background: transparent;
+          color: #f2f0ea;
+          font-size: 0.8rem;
+          font-weight: 500;
+          white-space: nowrap;
         }
         .grid {
           display: grid;
