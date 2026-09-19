@@ -10,9 +10,12 @@ and get back a Higgsfield-ready walkthrough video prompt.
 3. You review the grid and uncheck anything that isn't the unit (neighborhood shots, host photos, etc.).
 4. Claude (or ChatGPT, if you pick it) looks at your selected photos and writes a structured Higgsfield prompt (shot structure, space, camera moves, lighting).
 5. You copy the prompt into Higgsfield yourself.
+6. Each run is saved to "Recent listings" at the bottom of the page, so you
+   can reload a past listing with its photos, selection and settings intact.
 
-Nothing is stored. Photos are only held in memory for the request, and the
-prompt output isn't saved anywhere once you leave the page.
+Photos are only held in memory for the request. Generated prompts are saved
+to your own database (see step 3) so the history survives closing the page;
+delete any entry from the history list to remove it.
 
 ## 1. Get an Anthropic API key
 
@@ -55,7 +58,27 @@ gives you (`git remote add origin ...`, `git push -u origin main`).
 
 Every time you push a change to GitHub, Vercel redeploys automatically.
 
-## 4. Using it
+## 4. Add a database for the listing history
+
+The "Recent listings" panel needs somewhere to store past runs. Vercel no
+longer runs its own Postgres — it's provisioned from Neon through the
+marketplace, billed on your Vercel invoice, with a free tier that's far more
+than this app needs.
+
+1. Open your project in Vercel and go to the **Storage** tab.
+2. Click **Create Database**, pick **Neon** (Postgres), and choose a region
+   near you.
+3. When prompted, connect it to this project. Vercel adds `DATABASE_URL` to
+   your environment variables automatically.
+4. Redeploy so the running app picks up the new variable.
+
+The table is created automatically the first time the app saves a run, so
+there's no migration to run by hand.
+
+If you skip this step everything else still works — the app just shows a
+note in place of the history list.
+
+## 5. Using it
 
 Open your Vercel URL, enter the `SITE_PASSWORD` you set, paste an Airbnb
 listing link, and go.

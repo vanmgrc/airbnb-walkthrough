@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -18,6 +18,83 @@ export default function Home() {
   const [zipping, setZipping] = useState(false);
   const [zipDone, setZipDone] = useState(0);
   const [copied, setCopied] = useState(false);
+  const [history, setHistory] = useState([]);
+  const [historyError, setHistoryError] = useState("");
+
+  useEffect(() => {
+    loadHistory();
+  }, []);
+
+  // History is a convenience, not core to generating a prompt, so a database
+  // that isn't set up yet surfaces inside the history panel instead of
+  // blocking the rest of the page.
+  async function loadHistory() {
+    try {
+      const res = await fetch("/api/history");
+      const data = await res.json();
+      if (res.ok) {
+        setHistory(data.entries || []);
+        setHistoryError("");
+      } else {
+        setHistoryError(data.error || "Couldn't load history.");
+      }
+    } catch (e) {
+      setHistoryError("Couldn't load history.");
+    }
+  }
+
+  async function saveToHistory(promptText, provider) {
+    try {
+      const res = await fetch("/api/history", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          listingUrl: url,
+          provider,
+          prompt: promptText,
+          photos,
+          selected: Array.from(selected),
+          settings: { aspectRatio, duration, includeTitle, titleText, notes },
+        }),
+      });
+      if (res.ok) {
+        loadHistory();
+      } else {
+        const data = await res.json().catch(() => ({}));
+        setHistoryError(data.error || "Couldn't save this run to history.");
+      }
+    } catch (e) {
+      setHistoryError("Couldn't save this run to history.");
+    }
+  }
+
+  async function deleteEntry(id) {
+    try {
+      await fetch(`/api/history?id=${id}`, { method: "DELETE" });
+      loadHistory();
+    } catch (e) {
+      setHistoryError("Couldn't delete that entry.");
+    }
+  }
+
+  // Puts the page back exactly where it was for a past run: same photos, same
+  // selection, same settings, same prompt.
+  function loadEntry(entry) {
+    const settings = entry.settings || {};
+    setUrl(entry.listing_url || "");
+    setPhotos(entry.photos || []);
+    setSelected(new Set(entry.selected || []));
+    setPrompt(entry.prompt || "");
+    setUsedProvider(entry.provider || "");
+    setAspectRatio(settings.aspectRatio || "9:16");
+    setDuration(settings.duration || 30);
+    setIncludeTitle(Boolean(settings.includeTitle));
+    setTitleText(settings.titleText || "");
+    setNotes(settings.notes || "");
+    setProvider(entry.provider || "claude");
+    setError("");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
 
   async function fetchPhotos() {
     setError("");
@@ -75,6 +152,7 @@ export default function Home() {
       } else {
         setPrompt(data.prompt);
         setUsedProvider(data.provider);
+        saveToHistory(data.prompt, data.provider);
       }
     } catch (e) {
       setError("Failed to reach the server.");
@@ -285,6 +363,44 @@ export default function Home() {
             <button onClick={copyPrompt}>{copied ? "Copied" : "Copy"}</button>
           </div>
           <pre>{prompt}</pre>
+        </section>
+      )}
+
+      {(history.length > 0 || historyError) && (
+        <section className="history">
+          <h2>Recent listings</h2>
+          {historyError && <p className="history-note">{historyError}</p>}
+          {history.map((entry) => (
+            <div key={entry.id} className="history-row">
+              <div className="history-meta">
+                <span className="history-date">
+                  {new Date(entry.created_at).toLocaleString([], {
+                    month: "short",
+                    day: "numeric",
+                    hour: "numeric",
+                    minute: "2-digit",
+                  })}
+                </span>
+                <span className="provider-tag">
+                  {entry.provider === "chatgpt" ? "ChatGPT" : "Claude"}
+                </span>
+                <span className="history-count">
+                  {(entry.selected || []).length} photos
+                </span>
+              </div>
+              <div className="history-url" title={entry.listing_url}>
+                {entry.listing_url || "No listing URL"}
+              </div>
+              <div className="history-actions">
+                <button className="ghost-btn" onClick={() => loadEntry(entry)}>
+                  Load
+                </button>
+                <button className="ghost-btn" onClick={() => deleteEntry(entry.id)}>
+                  Delete
+                </button>
+              </div>
+            </div>
+          ))}
         </section>
       )}
 
@@ -502,6 +618,63 @@ export default function Home() {
           color: #cfcac0;
           font-size: 0.7rem;
           font-weight: 600;
+        }
+        .history {
+          margin-top: 2rem;
+        }
+        .history h2 {
+          font-size: 1rem;
+          margin: 0 0 0.7rem 0;
+        }
+        .history-note {
+          color: #9a9a9a;
+          font-size: 0.85rem;
+          margin: 0 0 0.7rem;
+        }
+        .history-row {
+          display: flex;
+          align-items: center;
+          gap: 1rem;
+          flex-wrap: wrap;
+          background: #1f222a;
+          border-radius: 10px;
+          padding: 0.8rem 1rem;
+          margin-bottom: 0.5rem;
+        }
+        .history-meta {
+          display: flex;
+          align-items: center;
+          gap: 0.5rem;
+          flex-shrink: 0;
+        }
+        .history-date,
+        .history-count {
+          color: #9a9a9a;
+          font-size: 0.8rem;
+          white-space: nowrap;
+        }
+        .history-url {
+          flex: 1;
+          min-width: 140px;
+          color: #f2f0ea;
+          font-size: 0.8rem;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+        .history-actions {
+          display: flex;
+          gap: 0.4rem;
+          flex-shrink: 0;
+        }
+        .ghost-btn {
+          padding: 0.35rem 0.7rem;
+          border-radius: 6px;
+          border: 1px solid #33373f;
+          background: transparent;
+          color: #f2f0ea;
+          font-size: 0.78rem;
+          font-weight: 500;
         }
         pre {
           white-space: pre-wrap;
