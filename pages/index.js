@@ -290,7 +290,6 @@ export default function Home() {
                 >
                   <img src={photo.url} alt={photo.room} loading="lazy" />
                   {position > -1 && <span className="order">{position + 1}</span>}
-                  {photo.room && <span className="room">{photo.room}</span>}
                 </button>
               );
             })}
@@ -578,20 +577,6 @@ export default function Home() {
           display: flex;
           align-items: center;
           justify-content: center;
-        }
-        .tile .room {
-          position: absolute;
-          left: 0;
-          right: 0;
-          bottom: 0;
-          padding: 0.25rem 0.4rem;
-          background: rgba(20, 22, 27, 0.82);
-          color: #f2f0ea;
-          font-size: 0.7rem;
-          text-align: left;
-          overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
         }
         .settings {
           margin-top: 1.5rem;
