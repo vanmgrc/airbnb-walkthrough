@@ -2,6 +2,53 @@
 // Airbnb doesn't offer a public API for this, so this reads the page's
 // own HTML/JSON. If Airbnb changes their markup this may need updating.
 
+// Airbnb's photo tour data carries a room name per photo in its
+// accessibility label ("Living room image 2"), which is where the room
+// labels come from. Paired with baseUrl so a label can't drift onto the
+// wrong photo.
+const LABELLED_PHOTO =
+  /"accessibilityLabel":"((?:[^"\\]|\\.)*)","baseUrl":"(https:\/\/a0\.muscache\.com\/im\/pictures\/[^"]+?)"/g;
+
+// Fallback for when the photo tour isn't in the page: any listing-looking
+// image URL, with no room label available.
+const ANY_PHOTO = /https:\/\/a0\.muscache\.com\/[^"'\\]+\.(?:jpg|jpeg|png|webp)/gi;
+
+const JUNK = /user|avatar|profile|icon/i;
+
+// "Living room image 2" -> "Living room"
+function roomFromLabel(label) {
+  return label.replace(/\s*image\s*\d+\s*$/i, "").trim();
+}
+
+function collect(html) {
+  const seen = new Set();
+  const photos = [];
+
+  const add = (rawUrl, room) => {
+    const cleaned = rawUrl.replace(/\?.*$/, "");
+    const key = cleaned.split("/").pop();
+    if (seen.has(key) || JUNK.test(cleaned)) return;
+    seen.add(key);
+    photos.push({ url: `${cleaned}?im_w=1200`, room: room || "" });
+  };
+
+  LABELLED_PHOTO.lastIndex = 0;
+  let match;
+  while ((match = LABELLED_PHOTO.exec(html))) {
+    add(match[2], roomFromLabel(match[1]));
+  }
+
+  // Only fall back if the photo tour gave us nothing at all; mixing the two
+  // would pull in duplicate size variants of photos we already have.
+  if (photos.length === 0) {
+    for (const raw of html.match(ANY_PHOTO) || []) {
+      add(raw, "");
+    }
+  }
+
+  return photos;
+}
+
 export default async function handler(req, res) {
   if (req.method !== "POST") {
     return res.status(405).json({ error: "Use POST" });
@@ -26,23 +73,7 @@ export default async function handler(req, res) {
     }
 
     const html = await response.text();
-
-    // Airbnb serves listing photos from muscache.com. Pull every URL that
-    // looks like a real listing photo (not icons/avatars) and dedupe.
-    const matches = html.match(/https:\/\/a0\.muscache\.com\/[^"'\\]+\.(?:jpg|jpeg|png|webp)/gi) || [];
-
-    const seen = new Set();
-    const photos = [];
-    for (const raw of matches) {
-      // Normalize to a decent-sized version of the image
-      const cleaned = raw.replace(/\?.*$/, "");
-      const key = cleaned.split("/").pop();
-      if (seen.has(key)) continue;
-      // Filter out obvious non-listing assets (tiny icons, user avatars)
-      if (/user|avatar|profile|icon/i.test(cleaned)) continue;
-      seen.add(key);
-      photos.push(`${cleaned}?im_w=1200`);
-    }
+    const photos = collect(html);
 
     if (photos.length === 0) {
       return res.status(404).json({

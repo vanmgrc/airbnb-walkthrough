@@ -7,7 +7,10 @@ and get back a Higgsfield-ready walkthrough video prompt.
 
 1. You paste a listing URL.
 2. The app fetches that page and pulls out the photos.
-3. You review the grid and uncheck anything that isn't the unit (neighborhood shots, host photos, etc.).
+3. You click photos in the order you want them to appear. Each one is numbered
+   as you pick it, and that order is what the video follows. Where Airbnb
+   labels a photo's room ("Living room", "Exterior"), that shows on the tile
+   so you can group scenes.
 4. Claude (or ChatGPT, if you pick it) looks at your selected photos and writes a structured Higgsfield prompt (shot structure, space, camera moves, lighting).
 5. You copy the prompt into Higgsfield yourself.
 6. Each run is saved to "Recent listings" at the bottom of the page, so you

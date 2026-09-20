@@ -24,6 +24,8 @@ Higgsfield prompts work best as short, direct sentences rather than long descrip
 3. Camera movement: for each shot, one clear camera instruction (e.g. "slow dolly forward into the living room", "smooth pan left across the kitchen island"). Use real estate walkthrough conventions: steady, welcoming, not chaotic.
 4. Lighting and mood: keep this separate from camera instructions. Describe the lighting quality and overall mood/style (warm, bright, cozy, minimal, etc.) based on what's in the photos.
 
+The photos are supplied in the order the host wants them to appear, each introduced by a caption naming its number and, where known, its room. Follow that order for the walkthrough unless the host says otherwise, and use those numbers to understand any instruction that refers to images by number.
+
 Output the final prompt as plain text formatted with those four labeled sections, ready to paste directly into Higgsfield. Do not add commentary before or after it.${instructionsBlock}`;
 }
 
@@ -41,14 +43,19 @@ async function generateWithClaude({ images, systemPrompt, userText }) {
     throw apiError("Server is missing ANTHROPIC_API_KEY. Add it in Vercel's project settings.", 500);
   }
 
-  const imageBlocks = images.map(({ contentType, data }) => ({
-    type: "image",
-    source: {
-      type: "base64",
-      media_type: contentType,
-      data,
+  // Each image is preceded by its own caption block so the model can tell
+  // them apart when the host refers to them by number.
+  const imageBlocks = images.flatMap(({ contentType, data, caption }) => [
+    { type: "text", text: caption },
+    {
+      type: "image",
+      source: {
+        type: "base64",
+        media_type: contentType,
+        data,
+      },
     },
-  }));
+  ]);
 
   const anthropicRes = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
@@ -85,10 +92,13 @@ async function generateWithChatGPT({ images, systemPrompt, userText }) {
     throw apiError("Server is missing OPENAI_API_KEY. Add it in Vercel's project settings.", 500);
   }
 
-  const imageBlocks = images.map(({ contentType, data }) => ({
-    type: "image_url",
-    image_url: { url: `data:${contentType};base64,${data}` },
-  }));
+  const imageBlocks = images.flatMap(({ contentType, data, caption }) => [
+    { type: "text", text: caption },
+    {
+      type: "image_url",
+      image_url: { url: `data:${contentType};base64,${data}` },
+    },
+  ]);
 
   const openaiRes = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -150,15 +160,24 @@ export default async function handler(req, res) {
 
   try {
     // Fetch each image and convert to base64 so the model can see them.
+    // Photos arrive in the order the host selected them. Numbering follows
+    // that order so "images 1 to 7" in the instructions means what they expect.
     const images = [];
-    for (const photoUrl of photos) {
+    for (const photo of photos) {
+      const photoUrl = typeof photo === "string" ? photo : photo.url;
+      const room = typeof photo === "string" ? "" : photo.room;
+      if (!photoUrl) continue;
+
       const imgRes = await fetch(photoUrl);
       if (!imgRes.ok) continue;
       const buffer = Buffer.from(await imgRes.arrayBuffer());
       const contentType = imgRes.headers.get("content-type") || "image/jpeg";
+
+      const position = images.length + 1;
       images.push({
         contentType,
         data: buffer.toString("base64"),
+        caption: room ? `Image ${position} — ${room}:` : `Image ${position}:`,
       });
     }
 

@@ -1,9 +1,15 @@
 import { useEffect, useState } from "react";
 
+// History entries saved before photos carried room labels stored bare URL
+// strings, so anything coming back from the server is normalized here.
+function normalizePhotos(list) {
+  return (list || []).map((p) => (typeof p === "string" ? { url: p, room: "" } : p));
+}
+
 export default function Home() {
   const [url, setUrl] = useState("");
   const [photos, setPhotos] = useState([]);
-  const [selected, setSelected] = useState(new Set());
+  const [selected, setSelected] = useState([]);
   const [notes, setNotes] = useState("");
   const [instructions, setInstructions] = useState("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
@@ -54,7 +60,7 @@ export default function Home() {
           provider,
           prompt: promptText,
           photos,
-          selected: Array.from(selected),
+          selected,
           settings: { aspectRatio, duration, includeTitle, titleText, notes, instructions },
         }),
       });
@@ -83,8 +89,8 @@ export default function Home() {
   function loadEntry(entry) {
     const settings = entry.settings || {};
     setUrl(entry.listing_url || "");
-    setPhotos(entry.photos || []);
-    setSelected(new Set(entry.selected || []));
+    setPhotos(normalizePhotos(entry.photos));
+    setSelected(entry.selected || []);
     setPrompt(entry.prompt || "");
     setUsedProvider(entry.provider || "");
     setAspectRatio(settings.aspectRatio || "9:16");
@@ -113,8 +119,8 @@ export default function Home() {
       if (!res.ok) {
         setError(data.error || "Something went wrong.");
       } else {
-        setPhotos(data.photos);
-        setSelected(new Set(data.photos));
+        setPhotos(normalizePhotos(data.photos));
+        setSelected([]);
       }
     } catch (e) {
       setError("Failed to reach the server.");
@@ -122,11 +128,23 @@ export default function Home() {
     setLoadingPhotos(false);
   }
 
-  function toggle(photo) {
-    const next = new Set(selected);
-    if (next.has(photo)) next.delete(photo);
-    else next.add(photo);
-    setSelected(next);
+  // Selection order is the shot order, so picking a photo appends it rather
+  // than flipping a flag. Dropping one renumbers everything after it.
+  function toggle(url) {
+    setSelected((current) =>
+      current.includes(url) ? current.filter((u) => u !== url) : [...current, url]
+    );
+  }
+
+  function selectAll() {
+    setSelected(photos.map((photo) => photo.url));
+  }
+
+  // Selected URLs paired back up with their room labels, in selection order.
+  function selectedPhotos() {
+    return selected.map(
+      (url) => photos.find((photo) => photo.url === url) || { url, room: "" }
+    );
   }
 
   async function generatePrompt() {
@@ -139,7 +157,7 @@ export default function Home() {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
-          photos: Array.from(selected),
+          photos: selectedPhotos(),
           notes,
           instructions,
           aspectRatio,
@@ -172,7 +190,7 @@ export default function Home() {
     try {
       const JSZip = (await import("jszip")).default;
       const zip = new JSZip();
-      const list = Array.from(selected);
+      const list = selected;
       let added = 0;
 
       for (let i = 0; i < list.length; i++) {
@@ -235,26 +253,47 @@ export default function Home() {
       {photos.length > 0 && (
         <>
           <section className="grid-header">
-            <p>{selected.size} of {photos.length} selected. Uncheck anything that isn't part of the unit.</p>
-            <button
-              className="download-btn"
-              onClick={downloadPhotos}
-              disabled={selected.size === 0 || zipping}
-            >
-              {zipping ? `Zipping ${zipDone}/${selected.size}…` : "Download as zip"}
-            </button>
+            <p>
+              {selected.length > 0
+                ? `${selected.length} of ${photos.length} selected, numbered in the order you picked them.`
+                : `${photos.length} photos. Click them in the order you want them to appear.`}
+            </p>
+            <div className="header-actions">
+              <button className="ghost-btn" onClick={selectAll} disabled={zipping}>
+                Select all
+              </button>
+              <button
+                className="ghost-btn"
+                onClick={() => setSelected([])}
+                disabled={selected.length === 0 || zipping}
+              >
+                Clear
+              </button>
+              <button
+                className="download-btn"
+                onClick={downloadPhotos}
+                disabled={selected.length === 0 || zipping}
+              >
+                {zipping ? `Zipping ${zipDone}/${selected.length}…` : "Download as zip"}
+              </button>
+            </div>
           </section>
           <section className="grid">
-            {photos.map((photo) => (
-              <label key={photo} className={`tile ${selected.has(photo) ? "on" : "off"}`}>
-                <img src={photo} alt="" loading="lazy" />
-                <input
-                  type="checkbox"
-                  checked={selected.has(photo)}
-                  onChange={() => toggle(photo)}
-                />
-              </label>
-            ))}
+            {photos.map((photo) => {
+              const position = selected.indexOf(photo.url);
+              return (
+                <button
+                  key={photo.url}
+                  type="button"
+                  className={`tile ${position > -1 ? "on" : "off"}`}
+                  onClick={() => toggle(photo.url)}
+                >
+                  <img src={photo.url} alt={photo.room} loading="lazy" />
+                  {position > -1 && <span className="order">{position + 1}</span>}
+                  {photo.room && <span className="room">{photo.room}</span>}
+                </button>
+              );
+            })}
           </section>
 
           <section className="settings">
@@ -357,9 +396,9 @@ export default function Home() {
           <button
             className="generate-btn"
             onClick={generatePrompt}
-            disabled={selected.size === 0 || loadingPrompt}
+            disabled={selected.length === 0 || loadingPrompt}
           >
-            {loadingPrompt ? "Writing prompt…" : `Generate prompt from ${selected.size} photos`}
+            {loadingPrompt ? "Writing prompt…" : `Generate prompt from ${selected.length} photos`}
           </button>
         </>
       )}
@@ -495,6 +534,12 @@ export default function Home() {
           grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
           gap: 0.5rem;
         }
+        .header-actions {
+          display: flex;
+          align-items: center;
+          gap: 0.4rem;
+          flex-shrink: 0;
+        }
         .tile {
           position: relative;
           aspect-ratio: 1;
@@ -502,22 +547,51 @@ export default function Home() {
           overflow: hidden;
           cursor: pointer;
           border: 2px solid transparent;
+          display: block;
+          width: 100%;
+          padding: 0;
+          background: #1f222a;
         }
         .tile.on {
           border-color: #ff6f59;
         }
         .tile.off img {
-          opacity: 0.3;
+          opacity: 0.7;
         }
         .tile img {
           width: 100%;
           height: 100%;
           object-fit: cover;
         }
-        .tile input {
+        .tile .order {
           position: absolute;
           top: 6px;
           right: 6px;
+          min-width: 22px;
+          height: 22px;
+          padding: 0 5px;
+          border-radius: 11px;
+          background: #ff6f59;
+          color: #14161b;
+          font-size: 0.75rem;
+          font-weight: 700;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        .tile .room {
+          position: absolute;
+          left: 0;
+          right: 0;
+          bottom: 0;
+          padding: 0.25rem 0.4rem;
+          background: rgba(20, 22, 27, 0.82);
+          color: #f2f0ea;
+          font-size: 0.7rem;
+          text-align: left;
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
         }
         .settings {
           margin-top: 1.5rem;
