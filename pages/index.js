@@ -5,6 +5,7 @@ export default function Home() {
   const [photos, setPhotos] = useState([]);
   const [selected, setSelected] = useState(new Set());
   const [notes, setNotes] = useState("");
+  const [instructions, setInstructions] = useState("");
   const [aspectRatio, setAspectRatio] = useState("9:16");
   const [duration, setDuration] = useState(30);
   const [includeTitle, setIncludeTitle] = useState(false);
@@ -54,7 +55,7 @@ export default function Home() {
           prompt: promptText,
           photos,
           selected: Array.from(selected),
-          settings: { aspectRatio, duration, includeTitle, titleText, notes },
+          settings: { aspectRatio, duration, includeTitle, titleText, notes, instructions },
         }),
       });
       if (res.ok) {
@@ -91,6 +92,7 @@ export default function Home() {
     setIncludeTitle(Boolean(settings.includeTitle));
     setTitleText(settings.titleText || "");
     setNotes(settings.notes || "");
+    setInstructions(settings.instructions || "");
     setProvider(entry.provider || "claude");
     setError("");
     window.scrollTo({ top: 0, behavior: "smooth" });
@@ -139,6 +141,7 @@ export default function Home() {
         body: JSON.stringify({
           photos: Array.from(selected),
           notes,
+          instructions,
           aspectRatio,
           duration,
           includeTitle,
@@ -332,11 +335,23 @@ export default function Home() {
           </section>
 
           <section className="notes-row">
-            <textarea
-              placeholder="Optional notes for Claude (e.g. highlight the pool, skip the bathroom shots)…"
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-            />
+            <div className="note-field">
+              <label>Notes about this listing (optional)</label>
+              <textarea
+                placeholder="What to feature or leave out, e.g. highlight the pool, skip the bathroom shots…"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+              />
+            </div>
+
+            <div className="note-field">
+              <label>How to write the prompt (optional)</label>
+              <textarea
+                placeholder="Direction for the writing itself, e.g. keep it under 150 words, use cinematic language, always open on the exterior…"
+                value={instructions}
+                onChange={(e) => setInstructions(e.target.value)}
+              />
+            </div>
           </section>
 
           <button
@@ -573,6 +588,15 @@ export default function Home() {
         }
         .notes-row {
           margin-top: 1.2rem;
+          display: flex;
+          flex-direction: column;
+          gap: 0.9rem;
+        }
+        .note-field label {
+          display: block;
+          font-size: 0.85rem;
+          color: #9a9a9a;
+          margin-bottom: 0.4rem;
         }
         textarea {
           width: 100%;

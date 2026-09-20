@@ -1,10 +1,19 @@
 // Sends the selected listing photos to Claude or ChatGPT and gets back a
 // Higgsfield-ready walkthrough video prompt.
 
-function buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText }) {
+function buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText, instructions }) {
   const titleLine = includeTitle
     ? `The video must open with a title card before any room footage: display the text "${titleText || "the property name"}" on screen for roughly 2 seconds, then cut to the first shot. Say this explicitly in the shot structure section.`
     : `Do not include a title card or any on-screen text. Open directly on the first room shot.`;
+
+  // Free-form direction from the host about how the prompt should be written.
+  // Placed last so it reads as the most specific instruction in the prompt.
+  const instructionsBlock = instructions
+    ? `
+
+Extra instructions from the host about how to write this prompt. Where these conflict with the guidance above, follow these:
+${instructions}`
+    : "";
 
   return `You write prompts for Higgsfield, an AI video generator, based on real estate photos.
 
@@ -15,7 +24,7 @@ Higgsfield prompts work best as short, direct sentences rather than long descrip
 3. Camera movement: for each shot, one clear camera instruction (e.g. "slow dolly forward into the living room", "smooth pan left across the kitchen island"). Use real estate walkthrough conventions: steady, welcoming, not chaotic.
 4. Lighting and mood: keep this separate from camera instructions. Describe the lighting quality and overall mood/style (warm, bright, cozy, minimal, etc.) based on what's in the photos.
 
-Output the final prompt as plain text formatted with those four labeled sections, ready to paste directly into Higgsfield. Do not add commentary before or after it.`;
+Output the final prompt as plain text formatted with those four labeled sections, ready to paste directly into Higgsfield. Do not add commentary before or after it.${instructionsBlock}`;
 }
 
 // Errors carrying a status are passed through to the client as-is; anything
@@ -126,6 +135,7 @@ export default async function handler(req, res) {
     duration = 30,
     includeTitle = false,
     titleText = "",
+    instructions = "",
     provider = "claude",
   } = req.body || {};
 
@@ -162,7 +172,7 @@ export default async function handler(req, res) {
 
     const text = await generate({
       images,
-      systemPrompt: buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText }),
+      systemPrompt: buildSystemPrompt({ aspectRatio, duration, includeTitle, titleText, instructions }),
       userText,
     });
 
